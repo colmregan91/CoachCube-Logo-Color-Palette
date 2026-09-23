@@ -1,7 +1,12 @@
-bin/
-obj/
-dist/
+# Leading slashes matter: an unanchored "dist/" would also match any vendored
+# library's own dist folder.
+/bin/
+/obj/
+/dist/
 node_modules/
 *.user
 .vs/
 .vscode/
+
+# Stray clone of the GitHub repo; this folder is the working tree now.
+/CoachCube Logo Color Palette/
