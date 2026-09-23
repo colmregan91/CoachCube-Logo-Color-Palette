@@ -1,0 +1,12 @@
+{
+  "name": "coachcube-logo-trace",
+  "private": true,
+  "description": "Regenerates LogoData.cs from SrcImage/CoachCube_Full_Logo_Navy.png",
+  "scripts": {
+    "build": "node trace.js && node emit.js"
+  },
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "potrace": "^2.1.8"
+  }
+}

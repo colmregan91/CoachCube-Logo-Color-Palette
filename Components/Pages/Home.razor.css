@@ -1,0 +1,341 @@
+.editor {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 1.5rem 0;
+}
+
+/* ---------- logo ---------- */
+
+.logo {
+    display: block;
+    width: 100%;
+    height: auto;
+    /* A chequerboard, so a section set to the page colour is still visible. */
+    background-image: linear-gradient(45deg, #e9e9ef 25%, transparent 25%, transparent 75%, #e9e9ef 75%),
+                      linear-gradient(45deg, #e9e9ef 25%, transparent 25%, transparent 75%, #e9e9ef 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 10px 10px;
+    border: 1px solid #d5d5de;
+    border-radius: 8px;
+}
+
+.region {
+    cursor: pointer;
+}
+
+.region:hover {
+    filter: brightness(1.12);
+}
+
+/* A single pulse on click, so nothing covers the artwork and nothing keeps moving. */
+.region.flash {
+    animation: flash 0.45s ease-out 1;
+}
+
+@keyframes flash {
+    0%, 100% { opacity: 1; }
+    35% { opacity: 0.2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .region.flash {
+        animation: none;
+    }
+}
+
+.hint {
+    margin: 0.75rem 0 0;
+    font-size: 0.85rem;
+    color: #6b7280;
+}
+
+/* ---------- controls ---------- */
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.empty {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.group-btn {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid #1d4ed8;
+    border-radius: 6px;
+    background: #1d4ed8;
+    color: #fff;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.group-btn:hover {
+    background: #1e40af;
+}
+
+/* ---------- picker ---------- */
+
+.picker-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 1.5rem;
+}
+
+.picker {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    width: 280px;
+    /* Stop the browser scrolling or text-selecting while a drag is in progress. */
+    touch-action: none;
+    user-select: none;
+}
+
+.picker-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.preview {
+    width: 96px;
+    height: 30px;
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+}
+
+/* ---------- hue ring ---------- */
+
+.wheel {
+    position: relative;
+    width: 280px;
+    height: 280px;
+}
+
+.wheel-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    cursor: crosshair;
+    background: conic-gradient(from 90deg,
+        #f00 0%, #f0f 16.667%, #00f 33.333%, #0ff 50%, #0f0 66.667%, #ff0 83.333%, #f00 100%);
+    /* Punch the middle out so the ring reads as a ring. */
+    -webkit-mask: radial-gradient(closest-side, transparent 0 72%, #000 72.5% 100%);
+    mask: radial-gradient(closest-side, transparent 0 72%, #000 72.5% 100%);
+}
+
+.wheel-handle {
+    position: absolute;
+    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+/* ---------- saturation / value square, inscribed in the ring ---------- */
+
+.sv {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 142px;
+    height: 142px;
+    transform: translate(-50%, -50%);
+    cursor: crosshair;
+}
+
+.sv-white,
+.sv-black {
+    position: absolute;
+    inset: 0;
+}
+
+.sv-white {
+    background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0));
+}
+
+.sv-black {
+    background: linear-gradient(to top, #000, rgba(0, 0, 0, 0));
+}
+
+.sv-handle {
+    position: absolute;
+    box-sizing: border-box;
+    width: 14px;
+    height: 14px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+/* ---------- R / G / B channels ---------- */
+
+.channels {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.channel {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.channel-label {
+    width: 0.9rem;
+    font-size: 0.8rem;
+    color: #374151;
+}
+
+.channel input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    height: 18px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid #d1d5db;
+    border-radius: 3px;
+    cursor: ew-resize;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.channel input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 7px;
+    height: 22px;
+    border: 1px solid #1f2937;
+    border-radius: 2px;
+    background: #fff;
+}
+
+.channel input[type="range"]::-moz-range-thumb {
+    width: 7px;
+    height: 22px;
+    border: 1px solid #1f2937;
+    border-radius: 2px;
+    background: #fff;
+}
+
+.channel input[type="number"] {
+    width: 54px;
+    padding: 0.2rem 0.3rem;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    text-align: right;
+}
+
+.hex-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #374151;
+}
+
+.hex-row .hex {
+    width: 110px;
+}
+
+/* ---------- side column ---------- */
+
+.side {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-width: 230px;
+}
+
+.export {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.readout-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #6b7280;
+}
+
+.hex {
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+}
+
+.actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.actions button {
+    flex: 1;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.actions button:hover {
+    background: #f3f4f6;
+}
+
+/* ---------- export ---------- */
+
+.export select {
+    padding: 0.4rem 0.3rem;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #fff;
+    font-size: 0.8rem;
+}
+
+.export-btn {
+    padding: 0.45rem 0.8rem;
+    border: 1px solid #1d4ed8;
+    border-radius: 6px;
+    background: #1d4ed8;
+    color: #fff;
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.export-btn:hover:not(:disabled) {
+    background: #1e40af;
+}
+
+.export-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.error {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #b91c1c;
+}

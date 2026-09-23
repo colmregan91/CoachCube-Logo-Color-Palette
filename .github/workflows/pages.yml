@@ -1,0 +1,63 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deployment finish rather than cancelling it half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        run: dotnet publish -c Release -o dist
+
+      - name: Point <base href> at the site root
+        run: |
+          set -euo pipefail
+          repo="${GITHUB_REPOSITORY#*/}"
+          # A <user>.github.io repo is served from the domain root; every other repo
+          # is served from /<repo>/, and the base href has to match or nothing loads.
+          if [ "$repo" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
+            base="/"
+          else
+            base="/$repo/"
+          fi
+          echo "base href = $base"
+          sed -i "s|<base href=\"/\" />|<base href=\"$base\" />|" \
+            dist/wwwroot/index.html dist/wwwroot/404.html
+          grep -h "base href" dist/wwwroot/index.html dist/wwwroot/404.html
+
+      - name: Disable Jekyll
+        # Jekyll skips directories starting with an underscore, which would drop _framework.
+        run: touch dist/wwwroot/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/wwwroot
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

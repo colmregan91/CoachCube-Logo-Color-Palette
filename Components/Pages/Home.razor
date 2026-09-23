@@ -1,0 +1,441 @@
+@page "/"
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@using System.Globalization
+
+<PageTitle>CoachCube colour palette</PageTitle>
+
+<div class="editor">
+    <section class="stage">
+        <svg class="logo" viewBox="0 0 @LogoData.Width @LogoData.Height" aria-label="CoachCube logo">
+            @foreach (var s in LogoData.Sections)
+            {
+                @* Re-keying the selected path on each click recreates the node, which is what
+                   restarts the one-shot flash when the same section is clicked twice. *@
+                <path @key="@(_selected.Contains(s.Id) ? $"{s.Id}-{_flash}" : s.Id)"
+                      class="region @(_selected.Contains(s.Id) ? "flash" : null)"
+                      d="@s.D" fill="@_colors[s.Id]" fill-rule="evenodd"
+                      aria-label="@s.Name" @onclick="() => Select(s.Id)" />
+            }
+        </svg>
+        <p class="hint">Click any part of the logo to select it.</p>
+    </section>
+
+    <div class="controls">
+        <div>
+            <button type="button" class="group-btn" @onclick="SelectMarkAndCube">Select logo and cube</button>
+        </div>
+
+        @if (!HasSelection)
+        {
+            <p class="empty">Select a section to recolour it.</p>
+        }
+        else
+        {
+            <div class="picker-row">
+                <div class="picker">
+                    <div class="picker-top">
+                        <span class="readout-label">@SelectionLabel</span>
+                        <div class="preview" style="background:@Current"></div>
+                    </div>
+
+                    <div class="wheel" data-picker="wheel" data-inner="0.72">
+                        @* The ring gradient is a separate layer because the mask that punches
+                           the hole would otherwise clip the square sitting inside it. *@
+                        <div class="wheel-ring"></div>
+
+                        <div class="sv" data-picker="sv" style="background:@HueCss">
+                            <div class="sv-white"></div>
+                            <div class="sv-black"></div>
+                            <div class="sv-handle" style="left:@Pct(_s); top:@Pct(1 - _v); background:@Current"></div>
+                        </div>
+
+                        <div class="wheel-handle" style="left:@RingX; top:@RingY; background:@HueCss"></div>
+                    </div>
+
+                    <div class="channels">
+                        @foreach (var ch in Channels)
+                        {
+                            <div class="channel">
+                                <span class="channel-label">@ch.Name</span>
+                                <input type="range" min="0" max="255" value="@ch.Value"
+                                       style="background:@ch.Gradient"
+                                       @oninput="e => SetChannel(ch.Name, e.Value)"
+                                       aria-label="@ch.Name" />
+                                <input type="number" min="0" max="255" value="@ch.Value"
+                                       @onchange="e => SetChannel(ch.Name, e.Value)" />
+                            </div>
+                        }
+                    </div>
+
+                    <div class="hex-row">
+                        <label for="hexbox">Hexadecimal</label>
+                        <input id="hexbox" type="text" class="hex" value="@Current" @onchange="OnHexChanged"
+                               spellcheck="false" />
+                    </div>
+                </div>
+
+                <div class="side">
+                    <div class="actions">
+                        <button type="button" @onclick="ResetSection">Reset section</button>
+                        <button type="button" @onclick="ResetAll">Reset all</button>
+                    </div>
+
+                    <div class="export">
+                        <span class="readout-label">Export</span>
+                        <select @bind="_scale" aria-label="Export size">
+                            @foreach (var s in Scales)
+                            {
+                                <option value="@s">@s× — @(LogoData.Width * s) × @(LogoData.Height * s)</option>
+                            }
+                        </select>
+                        <button type="button" class="export-btn" @onclick="ExportPng" disabled="@_exporting">
+                            @(_exporting ? "Saving…" : "Download PNG")
+                        </button>
+                        @if (_exportError is { } err)
+                        {
+                            <p class="error">@err</p>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private readonly Dictionary<string, string> _colors =
+        LogoData.Sections.ToDictionary(s => s.Id, s => s.DefaultColor);
+
+    /// <summary>The blue parts of the artwork: the four mark pieces plus the "Cube" wordmark.</summary>
+    private static readonly string[] MarkAndCube =
+        ["frame", "innerLeft", "innerRight", "solidRight", "cube"];
+
+    private readonly HashSet<string> _selected = [];
+    private int _flash;
+
+    private bool HasSelection => _selected.Count > 0;
+
+    /// <summary>The selected section nearest the bottom of the paint order; drives the picker.</summary>
+    private LogoSection? Primary => LogoData.Sections.FirstOrDefault(s => _selected.Contains(s.Id));
+
+    private string SelectionLabel => _selected.Count switch
+    {
+        0 => "",
+        1 => Primary!.Name,
+        var n => $"{n} sections",
+    };
+
+    private string Current => Primary is { } s ? _colors[s.Id] : "#000000";
+
+    // ---------- picker state ----------
+
+    // Hue/saturation/value are held separately from the hex so that dragging into a corner
+    // where hue is undefined (white, black, grey) does not throw the hue away.
+    private double _h;
+    private double _s = 1;
+    private double _v = 1;
+
+    private string HueCss => HsvToHex(_h, 1, 1);
+
+    /// <summary>Fraction of the ring's radius that the handle rides on, between hole and rim.</summary>
+    private const double RingTrack = 0.86;
+
+    // The ring is drawn by a conic gradient starting at 3 o'clock and running clockwise through
+    // magenta, so screen angle and hue run in opposite directions.
+    private double RingAngle => (90 - _h + 360) % 360 * Math.PI / 180;
+
+    private string RingX => Pct(0.5 + RingTrack * 0.5 * Math.Sin(RingAngle));
+
+    private string RingY => Pct(0.5 - RingTrack * 0.5 * Math.Cos(RingAngle));
+
+    private static string Pct(double f) =>
+        (Math.Clamp(f, 0, 1) * 100).ToString("0.###", CultureInfo.InvariantCulture) + "%";
+
+    /// <summary>R/G/B rows, each with a track showing what that channel does to the current colour.</summary>
+    private IEnumerable<(char Name, int Value, string Gradient)> Channels
+    {
+        get
+        {
+            var (r, g, b) = HexToRgb(Current);
+            yield return ('R', r, $"linear-gradient(to right, rgb(0,{g},{b}), rgb(255,{g},{b}))");
+            yield return ('G', g, $"linear-gradient(to right, rgb({r},0,{b}), rgb({r},255,{b}))");
+            yield return ('B', b, $"linear-gradient(to right, rgb({r},{g},0), rgb({r},{g},255))");
+        }
+    }
+
+    private void Select(string id)
+    {
+        _selected.Clear();
+        _selected.Add(id);
+        _flash++;
+        SyncPickerTo(_colors[id]);
+    }
+
+    private void SelectMarkAndCube()
+    {
+        _selected.Clear();
+        _selected.UnionWith(MarkAndCube);
+        _flash++;
+        SyncPickerTo(_colors[Primary!.Id]);
+    }
+
+    private void SyncPickerTo(string hex)
+    {
+        var (h, s, v) = HexToHsv(hex);
+
+        // A grey has no meaningful hue; keep whatever the wheel was last on.
+        if (s > 0.0001 && v > 0.0001)
+        {
+            _h = h;
+        }
+
+        _s = s;
+        _v = v;
+    }
+
+    private void Apply(string hex)
+    {
+        foreach (var id in _selected)
+        {
+            _colors[id] = hex;
+        }
+    }
+
+    [JSInvokable]
+    public void OnSvDrag(double sx, double sy)
+    {
+        _s = Math.Clamp(sx, 0, 1);
+        _v = 1 - Math.Clamp(sy, 0, 1);
+        Apply(HsvToHex(_h, _s, _v));
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void OnHueDrag(double hue01)
+    {
+        _h = Math.Clamp(hue01, 0, 1) * 360;
+        Apply(HsvToHex(_h, _s, _v));
+        StateHasChanged();
+    }
+
+    private void SetChannel(char name, object? value)
+    {
+        if (!int.TryParse(value?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v))
+        {
+            return;
+        }
+
+        v = Math.Clamp(v, 0, 255);
+        var (r, g, b) = HexToRgb(Current);
+        (r, g, b) = name switch
+        {
+            'R' => (v, g, b),
+            'G' => (r, v, b),
+            _ => (r, g, v),
+        };
+
+        var hex = $"#{r:X2}{g:X2}{b:X2}";
+        Apply(hex);
+        SyncPickerTo(hex);
+    }
+
+    private void OnHexChanged(ChangeEventArgs e)
+    {
+        // An unparseable value falls through, and the bound input re-renders with the old colour.
+        if (e.Value?.ToString() is { } v && Normalise(v) is { } hex)
+        {
+            Apply(hex);
+            SyncPickerTo(hex);
+        }
+    }
+
+    private void ResetSection()
+    {
+        foreach (var s in LogoData.Sections.Where(s => _selected.Contains(s.Id)))
+        {
+            _colors[s.Id] = s.DefaultColor;
+        }
+
+        if (Primary is { } p)
+        {
+            SyncPickerTo(p.DefaultColor);
+        }
+    }
+
+    private void ResetAll()
+    {
+        foreach (var s in LogoData.Sections)
+        {
+            _colors[s.Id] = s.DefaultColor;
+        }
+
+        if (Primary is { } p)
+        {
+            SyncPickerTo(p.DefaultColor);
+        }
+    }
+
+    /// <summary>Accepts #rgb / #rrggbb, with or without the hash, and returns upper-case #RRGGBB.</summary>
+    private static string? Normalise(string value)
+    {
+        var v = value.Trim().TrimStart('#');
+
+        if (v.Length == 3)
+        {
+            v = string.Concat(v.Select(c => new string(c, 2)));
+        }
+
+        if (v.Length != 6 || !v.All(Uri.IsHexDigit))
+        {
+            return null;
+        }
+
+        return "#" + v.ToUpperInvariant();
+    }
+
+    // ---------- colour conversion ----------
+
+    private static (int R, int G, int B) HexToRgb(string hex)
+    {
+        var v = hex.TrimStart('#');
+        return (Convert.ToInt32(v[..2], 16),
+                Convert.ToInt32(v.Substring(2, 2), 16),
+                Convert.ToInt32(v.Substring(4, 2), 16));
+    }
+
+    private static string HsvToHex(double h, double s, double v)
+    {
+        h = ((h % 360) + 360) % 360;
+
+        var c = v * s;
+        var x = c * (1 - Math.Abs(h / 60.0 % 2 - 1));
+        var m = v - c;
+
+        var (r, g, b) = h switch
+        {
+            < 60 => (c, x, 0.0),
+            < 120 => (x, c, 0.0),
+            < 180 => (0.0, c, x),
+            < 240 => (0.0, x, c),
+            < 300 => (x, 0.0, c),
+            _ => (c, 0.0, x),
+        };
+
+        return $"#{Byte(r + m):X2}{Byte(g + m):X2}{Byte(b + m):X2}";
+
+        static int Byte(double d) => (int)Math.Round(Math.Clamp(d, 0, 1) * 255);
+    }
+
+    private static (double H, double S, double V) HexToHsv(string hex)
+    {
+        var (ri, gi, bi) = HexToRgb(hex);
+        var r = ri / 255.0;
+        var g = gi / 255.0;
+        var b = bi / 255.0;
+
+        var max = Math.Max(r, Math.Max(g, b));
+        var min = Math.Min(r, Math.Min(g, b));
+        var d = max - min;
+
+        double h = 0;
+        if (d > 0)
+        {
+            h = max == r ? 60 * ((g - b) / d % 6)
+              : max == g ? 60 * ((b - r) / d + 2)
+              : 60 * ((r - g) / d + 4);
+        }
+
+        if (h < 0)
+        {
+            h += 360;
+        }
+
+        return (h, max == 0 ? 0 : d / max, max);
+    }
+
+    // ---------- PNG export ----------
+
+    private static readonly int[] Scales = [1, 2, 4];
+
+    private IJSObjectReference? _module;
+    private DotNetObjectReference<Home>? _self;
+    private int _scale = 1;
+    private bool _exporting;
+    private string? _exportError;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>(
+                "import", "./Components/Pages/Home.razor.js");
+
+            _self = DotNetObjectReference.Create(this);
+            await _module.InvokeVoidAsync("initPicker", _self);
+        }
+    }
+
+    private async Task ExportPng()
+    {
+        if (_module is null)
+        {
+            return;
+        }
+
+        _exporting = true;
+        _exportError = null;
+
+        try
+        {
+            var name = $"coachcube-logo-{LogoData.Width * _scale}px.png";
+            await _module.InvokeAsync<long>(
+                "exportPng", BuildSvg(), LogoData.Width * _scale, LogoData.Height * _scale, name);
+        }
+        catch (JSException ex)
+        {
+            _exportError = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            _exporting = false;
+        }
+    }
+
+    /// <summary>
+    /// The current artwork as standalone SVG. Explicit width/height matter: without them the
+    /// browser has no intrinsic size to decode the image at.
+    /// </summary>
+    private string BuildSvg()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"""<svg xmlns="http://www.w3.org/2000/svg" width="{LogoData.Width}" height="{LogoData.Height}" viewBox="0 0 {LogoData.Width} {LogoData.Height}">""");
+
+        foreach (var s in LogoData.Sections)
+        {
+            // Colours only ever come from HsvToHex, SetChannel or Normalise, so always #RRGGBB.
+            sb.Append($"""<path fill="{_colors[s.Id]}" fill-rule="evenodd" d="{s.D}"/>""");
+        }
+
+        sb.Append("</svg>");
+        return sb.ToString();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            try
+            {
+                await _module.InvokeVoidAsync("disposePicker");
+                await _module.DisposeAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+                // The circuit is already gone; nothing to clean up on the client.
+            }
+        }
+
+        _self?.Dispose();
+    }
+}
